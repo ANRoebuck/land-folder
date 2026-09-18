@@ -2,63 +2,93 @@ import { useEffect, useMemo, useState } from 'react'
 import Toolbar from './components/Toolbar'
 import VisibilityPanel from './components/VisibilityPanel'
 import CycleTable from './components/CycleTable'
-import { COLOR_PAIRS, THREE_COLOR_COMBOS, CYCLES } from './data/cycles'
+import FlatLandSection from './components/FlatLandSection'
+import { LAND_CLASSES, CYCLES, FLAT_LANDS } from './data/cycles'
 import {
   buildExportPayload,
   applyImportPayload,
+  createEmptyOwnership,
   loadOwnership,
   loadOverrides,
   loadHidden,
+  loadRowOrder,
+  loadClassOrder,
+  resolveOrder,
   saveOwnership,
   saveOverrides,
   saveHidden,
+  saveRowOrder,
+  saveClassOrder,
 } from './lib/storage'
-import type { ExportPayload, HiddenState, OverridesMap, OwnershipMap } from './lib/storage'
+import type { ExportPayload, HiddenState, OverridesMap, OwnershipMap, VersionKey } from './lib/storage'
+
+const CYCLES_BY_ID = Object.fromEntries(CYCLES.map((c) => [c.id, c]))
+const FLAT_LANDS_BY_ID = Object.fromEntries(FLAT_LANDS.map((f) => [f.id, f]))
+// Cycles and flat lands share one id-keyed row-order/hidden.cycles keyspace
+// (see FlatLand in data/types.ts) -- neither is a cycle exactly, but both
+// are "a reorderable/hideable row-level thing within a class".
+const ROW_IDS = [...CYCLES.map((c) => c.id), ...FLAT_LANDS.map((f) => f.id)]
+const CLASS_IDS = LAND_CLASSES.map((c) => c.id)
+const CLASSES_BY_ID = Object.fromEntries(LAND_CLASSES.map((c) => [c.id, c]))
+
+function classIdOfRow(id: string): string | undefined {
+  return CYCLES_BY_ID[id]?.classId ?? FLAT_LANDS_BY_ID[id]?.classId
+}
 
 export default function App() {
   const [ownership, setOwnership] = useState<OwnershipMap>(() => loadOwnership())
   const [overrides, setOverrides] = useState<OverridesMap>(() => loadOverrides())
   const [hidden, setHidden] = useState<HiddenState>(() => loadHidden())
-  const [editMode, setEditMode] = useState(false)
+  const [rowOrder, setRowOrder] = useState<string[]>(() => loadRowOrder())
+  const [classOrder, setClassOrder] = useState<string[]>(() => loadClassOrder())
   const [visibilityPanelOpen, setVisibilityPanelOpen] = useState(false)
+  const editMode = false
 
   useEffect(() => saveOwnership(ownership), [ownership])
   useEffect(() => saveOverrides(overrides), [overrides])
   useEffect(() => saveHidden(hidden), [hidden])
+  useEffect(() => saveRowOrder(rowOrder), [rowOrder])
+  useEffect(() => saveClassOrder(classOrder), [classOrder])
 
-  const twoColorCycles = useMemo(
-    () => CYCLES.filter((c) => c.type === 'two-color' && !hidden.cycles[c.id]),
-    [hidden],
+  const orderedRowIds = useMemo(() => resolveOrder(ROW_IDS, rowOrder), [rowOrder])
+  const orderedCycles = useMemo(
+    () => orderedRowIds.filter((id) => CYCLES_BY_ID[id]).map((id) => CYCLES_BY_ID[id]),
+    [orderedRowIds],
   )
-  const threeColorCycles = useMemo(
-    () => CYCLES.filter((c) => c.type === 'three-color' && !hidden.cycles[c.id]),
-    [hidden],
+  const orderedFlatLands = useMemo(
+    () => orderedRowIds.filter((id) => FLAT_LANDS_BY_ID[id]).map((id) => FLAT_LANDS_BY_ID[id]),
+    [orderedRowIds],
+  )
+  const orderedClasses = useMemo(
+    () => resolveOrder(CLASS_IDS, classOrder).map((id) => CLASSES_BY_ID[id]),
+    [classOrder],
   )
 
-  const pairColumns = useMemo(
+  /** One CycleTable's (or FlatLandSection's) worth of props per class, in the user's customised order. */
+  const classSections = useMemo(
     () =>
-      COLOR_PAIRS.filter((p) => !hidden.pairs[p.key]).map((p) => ({
-        key: p.key,
-        label: p.guild,
-        sublabel: p.colors,
+      orderedClasses.map((cls) => ({
+        cls,
+        cycles: orderedCycles.filter((c) => c.classId === cls.id && !hidden.cycles[c.id]),
+        flatLands: orderedFlatLands.filter((f) => f.classId === cls.id && !hidden.cycles[f.id]),
+        columns: cls.categories
+          .filter((cat) => !hidden.categories[cls.id]?.[cat.key])
+          .map((cat) => ({ key: cat.key, label: cat.label, sublabel: cat.sublabel ?? '' })),
       })),
-    [hidden],
-  )
-  const tripleColumns = useMemo(
-    () =>
-      THREE_COLOR_COMBOS.filter((t) => !hidden.triples[t.key]).map((t) => ({
-        key: t.key,
-        label: t.name,
-        sublabel: t.colors,
-      })),
-    [hidden],
+    [orderedClasses, orderedCycles, orderedFlatLands, hidden],
   )
 
-  function handleQtyChange(id: string, field: 'normal' | 'foil', value: number) {
-    setOwnership((prev) => ({
-      ...prev,
-      [id]: { normal: prev[id]?.normal ?? 0, foil: prev[id]?.foil ?? 0, [field]: value },
-    }))
+  function handleAddVersion(id: string, version: VersionKey) {
+    setOwnership((prev) => {
+      const existing = prev[id] ?? createEmptyOwnership()
+      return {
+        ...prev,
+        [id]: {
+          ...existing,
+          versions: { ...existing.versions, [version]: existing.versions[version] + 1 },
+        },
+      }
+    })
   }
 
   function handleNameCommit(id: string, name: string, defaultName: string) {
@@ -74,15 +104,57 @@ export default function App() {
     })
   }
 
-  function toggleInSet(key: 'cycles' | 'pairs' | 'triples', id: string) {
-    setHidden((prev) => {
-      const next = { ...prev, [key]: { ...prev[key] } }
-      if (next[key][id]) {
-        delete next[key][id]
-      } else {
-        next[key][id] = true
-      }
+  function handleMoveRow(id: string, direction: 'up' | 'down') {
+    setRowOrder((prevRowOrder) => {
+      const current = resolveOrder(ROW_IDS, prevRowOrder)
+      const classId = classIdOfRow(id)
+      const sameClass = current
+        .map((rid, i) => ({ rid, i }))
+        .filter(({ rid }) => classIdOfRow(rid) === classId)
+      const pos = sameClass.findIndex(({ rid }) => rid === id)
+      const swapPos = direction === 'up' ? pos - 1 : pos + 1
+      if (pos === -1 || swapPos < 0 || swapPos >= sameClass.length) return prevRowOrder
+      const aIndex = sameClass[pos].i
+      const bIndex = sameClass[swapPos].i
+      const next = [...current]
+      ;[next[aIndex], next[bIndex]] = [next[bIndex], next[aIndex]]
       return next
+    })
+  }
+
+  function handleMoveClass(id: string, direction: 'up' | 'down') {
+    setClassOrder((prevClassOrder) => {
+      const current = resolveOrder(CLASS_IDS, prevClassOrder)
+      const pos = current.indexOf(id)
+      const swapPos = direction === 'up' ? pos - 1 : pos + 1
+      if (pos === -1 || swapPos < 0 || swapPos >= current.length) return prevClassOrder
+      const next = [...current]
+      ;[next[pos], next[swapPos]] = [next[swapPos], next[pos]]
+      return next
+    })
+  }
+
+  function toggleRowHidden(id: string) {
+    setHidden((prev) => {
+      const nextCycles = { ...prev.cycles }
+      if (nextCycles[id]) {
+        delete nextCycles[id]
+      } else {
+        nextCycles[id] = true
+      }
+      return { ...prev, cycles: nextCycles }
+    })
+  }
+
+  function toggleCategoryHidden(classId: string, categoryKey: string) {
+    setHidden((prev) => {
+      const nextForClass = { ...(prev.categories[classId] ?? {}) }
+      if (nextForClass[categoryKey]) {
+        delete nextForClass[categoryKey]
+      } else {
+        nextForClass[categoryKey] = true
+      }
+      return { ...prev, categories: { ...prev.categories, [classId]: nextForClass } }
     })
   }
 
@@ -98,7 +170,11 @@ export default function App() {
   }
 
   function handleImportFile(file: File) {
-    if (!window.confirm('Importing will replace all current ownership, name, and visibility data in this browser. Continue?')) {
+    if (
+      !window.confirm(
+        'Importing will replace all current ownership, name, visibility, and order (row and class) data in this browser. Continue?',
+      )
+    ) {
       return
     }
     const reader = new FileReader()
@@ -109,6 +185,8 @@ export default function App() {
         setOwnership(loadOwnership())
         setOverrides(loadOverrides())
         setHidden(loadHidden())
+        setRowOrder(loadRowOrder())
+        setClassOrder(loadClassOrder())
       } catch (err) {
         window.alert(`Could not import file: ${err instanceof Error ? err.message : String(err)}`)
       }
@@ -119,8 +197,6 @@ export default function App() {
   return (
     <div className="app">
       <Toolbar
-        editMode={editMode}
-        onToggleEditMode={() => setEditMode((v) => !v)}
         visibilityPanelOpen={visibilityPanelOpen}
         onToggleVisibilityPanel={() => setVisibilityPanelOpen((v) => !v)}
         onExport={handleExport}
@@ -128,35 +204,42 @@ export default function App() {
       />
       {visibilityPanelOpen && (
         <VisibilityPanel
-          cycles={CYCLES}
-          colorPairs={COLOR_PAIRS}
-          threeColorCombos={THREE_COLOR_COMBOS}
+          classes={orderedClasses}
+          cycles={orderedCycles}
+          flatLands={orderedFlatLands}
           hidden={hidden}
-          onToggleCycle={(id) => toggleInSet('cycles', id)}
-          onTogglePair={(key) => toggleInSet('pairs', key)}
-          onToggleTriple={(key) => toggleInSet('triples', key)}
+          onToggleRow={toggleRowHidden}
+          onToggleCategory={toggleCategoryHidden}
+          onMoveRow={handleMoveRow}
+          onMoveClass={handleMoveClass}
         />
       )}
-      <CycleTable
-        title="Two-color lands"
-        cycles={twoColorCycles}
-        columns={pairColumns}
-        ownership={ownership}
-        overrides={overrides}
-        editMode={editMode}
-        onQtyChange={handleQtyChange}
-        onNameCommit={handleNameCommit}
-      />
-      <CycleTable
-        title="Three-color lands"
-        cycles={threeColorCycles}
-        columns={tripleColumns}
-        ownership={ownership}
-        overrides={overrides}
-        editMode={editMode}
-        onQtyChange={handleQtyChange}
-        onNameCommit={handleNameCommit}
-      />
+      {classSections.map(({ cls, cycles, flatLands, columns }) =>
+        cls.categories.length > 0 ? (
+          <CycleTable
+            key={cls.id}
+            title={cls.name}
+            cycles={cycles}
+            columns={columns}
+            ownership={ownership}
+            overrides={overrides}
+            editMode={editMode}
+            onNameCommit={handleNameCommit}
+            onAddVersion={handleAddVersion}
+          />
+        ) : (
+          <FlatLandSection
+            key={cls.id}
+            title={cls.name}
+            lands={flatLands}
+            ownership={ownership}
+            overrides={overrides}
+            editMode={editMode}
+            onNameCommit={handleNameCommit}
+            onAddVersion={handleAddVersion}
+          />
+        ),
+      )}
       <footer className="app-footer">
         <p>
           Data is stored only in this browser's localStorage. Use Export regularly to back up your

@@ -1,6 +1,7 @@
+import type { CSSProperties } from 'react'
 import type { Cycle } from '../data/types'
-import type { OwnershipMap, OverridesMap } from '../lib/storage'
-import { cardId } from '../lib/storage'
+import type { OwnershipMap, OverridesMap, VersionKey } from '../lib/storage'
+import { cardId, createEmptyOwnership } from '../lib/storage'
 import CardCell from './CardCell'
 
 interface ColumnDef {
@@ -16,8 +17,8 @@ interface CycleTableProps {
   ownership: OwnershipMap
   overrides: OverridesMap
   editMode: boolean
-  onQtyChange: (id: string, field: 'normal' | 'foil', value: number) => void
   onNameCommit: (id: string, name: string, defaultName: string) => void
+  onAddVersion: (id: string, version: VersionKey) => void
 }
 
 export default function CycleTable({
@@ -27,8 +28,8 @@ export default function CycleTable({
   ownership,
   overrides,
   editMode,
-  onQtyChange,
   onNameCommit,
+  onAddVersion,
 }: CycleTableProps) {
   if (cycles.length === 0 || columns.length === 0) {
     return null
@@ -38,7 +39,7 @@ export default function CycleTable({
     <section className="cycle-table-section">
       <h2>{title}</h2>
       <div className="table-scroll">
-        <table>
+        <table style={{ '--col-count': columns.length } as CSSProperties}>
           <thead>
             <tr>
               <th className="row-head-col">Cycle</th>
@@ -65,8 +66,8 @@ export default function CycleTable({
                       </span>
                     )}
                   </div>
-                  <div className="row-head-era">{cycle.era}</div>
-                  <div className="row-head-description">{cycle.description}</div>
+                  {/* <div className="row-head-era">{cycle.era}</div> */}
+                  {/* <div className="row-head-description">{cycle.description}</div> */}
                 </th>
                 {columns.map((col) => {
                   const defaultName = cycle.cards[col.key]
@@ -75,16 +76,15 @@ export default function CycleTable({
                   }
                   const id = cardId(cycle.id, col.key)
                   const displayName = overrides[id] ?? defaultName
-                  const owned = ownership[id]
+                  const owned = ownership[id] ?? createEmptyOwnership()
                   return (
                     <CardCell
                       key={col.key}
                       name={displayName}
                       editMode={editMode}
-                      normal={owned?.normal ?? 0}
-                      foil={owned?.foil ?? 0}
+                      versions={owned.versions}
                       onNameCommit={(name) => onNameCommit(id, name, defaultName)}
-                      onQtyChange={(field, value) => onQtyChange(id, field, value)}
+                      onAddVersion={(version) => onAddVersion(id, version)}
                     />
                   )
                 })}

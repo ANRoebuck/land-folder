@@ -122,6 +122,34 @@ button[aria-pressed='true'] {
   padding: 0.15rem 0;
 }
 
+.visibility-item.reorderable {
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.visibility-item.reorderable label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.reorder-buttons {
+  display: flex;
+  gap: 0.2rem;
+  flex: none;
+}
+
+.reorder-buttons button {
+  padding: 0.05rem 0.4rem;
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.reorder-buttons button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
 .cycle-table-section {
   margin-top: 2rem;
 }
@@ -138,6 +166,16 @@ button[aria-pressed='true'] {
 table {
   border-collapse: collapse;
   width: 100%;
+  /* Fixed layout sizes columns from this row's widths instead of content,
+     so every category column (left at width: auto below) shares the
+     remaining space equally rather than being sized by its widest card.
+     A cell's own min-width can't force a fixed-layout table past its
+     `width`, so the floor has to live here instead -- --col-count is set
+     inline per table (its column count varies), everything else is a
+     static design value. Below that floor the table overflows .table-scroll
+     and scrolls horizontally rather than squeezing columns unreadably thin. */
+  min-width: calc(9rem + var(--col-count, 10) * 7rem);
+  table-layout: fixed;
 }
 
 th,
@@ -148,6 +186,7 @@ td {
 }
 
 .row-head-col {
+  width: 9rem;
   min-width: 9rem;
   text-align: left;
   background: var(--bg-alt);
@@ -156,7 +195,10 @@ td {
 .row-head {
   text-align: left;
   background: var(--bg-alt);
-  white-space: nowrap;
+  /* Was nowrap under auto layout, where a long name could grow the column.
+     With the column width now fixed, wrap instead so a name like "Channel
+     Lands" breaks onto a second line rather than overflowing the cell. */
+  white-space: normal;
 }
 
 .row-head-name {
@@ -201,11 +243,121 @@ td {
 }
 
 .card-cell {
+  /* th/td already get this from the tag selector above, but a flat class's
+     card-cell renders as a plain div (see CardCell's `as` prop), which
+     that selector doesn't reach -- so it's declared here too, once, for
+     both cases. */
+  border: 1px solid var(--border);
+  padding: 0.4rem;
+  vertical-align: top;
   min-width: 7rem;
 }
 
 .card-cell-empty {
   background: var(--bg-alt);
+}
+
+.flat-land-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  /* No rows/columns to draw (see FlatLand in data/types.ts), but this
+     border + the header-tinted background reads as "the same kind of
+     boxed table area" as an actual CycleTable, rather than cards just
+     floating loose on the page. */
+  border: 1px solid var(--border);
+  background: var(--bg-alt);
+}
+
+.flat-land-grid .card-cell {
+  width: 9rem;
+  background: var(--bg);
+}
+
+.card-art-wrap {
+  position: relative;
+  margin-bottom: 0.4rem;
+}
+
+.card-art {
+  display: block;
+  width: 100%;
+  height: 4.5rem;
+  object-fit: cover;
+  border-radius: 4px;
+  background: var(--bg-alt);
+}
+
+.card-art-placeholder {
+  width: 100%;
+  height: 4.5rem;
+  border-radius: 4px;
+  background: var(--bg-alt);
+}
+
+.add-version-wrap {
+  position: absolute;
+  top: 0.25rem;
+  right: 0.25rem;
+}
+
+.add-version-button {
+  width: 1.4rem;
+  height: 1.4rem;
+  padding: 0;
+  line-height: 1;
+  font-size: 1rem;
+  font-weight: 600;
+  border-radius: 999px;
+  background: var(--bg);
+  opacity: 0.85;
+}
+
+.add-version-button:hover {
+  opacity: 1;
+}
+
+.add-version-menu {
+  position: absolute;
+  top: 1.6rem;
+  right: 0;
+  z-index: 10;
+  min-width: 6rem;
+  margin: 0;
+  padding: 0.25rem;
+  list-style: none;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.add-version-menu li + li {
+  margin-top: 0.15rem;
+}
+
+.add-version-menu button {
+  width: 100%;
+  text-align: left;
+  font-size: 0.8rem;
+  padding: 0.25rem 0.4rem;
+}
+
+.card-versions-owned {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.35rem;
+}
+
+.version-badge {
+  font-size: 0.7rem;
+  color: var(--fg-muted);
+  background: var(--bg-alt);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.05rem 0.4rem;
 }
 
 .card-name {
@@ -223,29 +375,6 @@ td {
   border: 1px solid var(--border);
   border-radius: 4px;
   padding: 0.15rem 0.3rem;
-}
-
-.card-counts {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.card-count-field {
-  display: flex;
-  flex-direction: column;
-  font-size: 0.7rem;
-  color: var(--fg-muted);
-  gap: 0.15rem;
-}
-
-.card-count-field input {
-  width: 3.5rem;
-  font: inherit;
-  background: var(--bg);
-  color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 0.2rem 0.3rem;
 }
 
 .app-footer {

@@ -2,8 +2,6 @@ import { useRef } from 'react'
 import type { ChangeEvent } from 'react'
 
 interface ToolbarProps {
-  editMode: boolean
-  onToggleEditMode: () => void
   visibilityPanelOpen: boolean
   onToggleVisibilityPanel: () => void
   onExport: () => void
@@ -11,8 +9,6 @@ interface ToolbarProps {
 }
 
 export default function Toolbar({
-  editMode,
-  onToggleEditMode,
   visibilityPanelOpen,
   onToggleVisibilityPanel,
   onExport,
@@ -32,11 +28,8 @@ export default function Toolbar({
     <div className="toolbar">
       <h1>MTG Land Cycle Tracker</h1>
       <div className="toolbar-actions">
-        <button type="button" onClick={onToggleEditMode} aria-pressed={editMode}>
-          {editMode ? 'Done editing names' : 'Edit card names'}
-        </button>
         <button type="button" onClick={onToggleVisibilityPanel} aria-pressed={visibilityPanelOpen}>
-          {visibilityPanelOpen ? 'Hide visibility panel' : 'Show/hide rows & columns'}
+          {visibilityPanelOpen ? 'Hide customisation panel' : 'Customise'}
         </button>
         <button type="button" onClick={onExport}>
           Export
